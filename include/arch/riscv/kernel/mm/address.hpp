@@ -1,8 +1,10 @@
 #pragma once
 
+#include <bit>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 #include "lib/assert.hpp"
 
@@ -30,13 +32,6 @@ namespace riscv::mem
         }
 
     public:
-        template <typename U>
-        constexpr operator pa_t<U>(void) const noexcept
-        requires std::convertible_to<T *, U *>
-        {
-            return pa_t<U>{address_};
-        }
-
         explicit operator T *(void) noexcept
         {
             return reinterpret_cast<T *>(address_);
@@ -45,6 +40,41 @@ namespace riscv::mem
         constexpr explicit operator bool(void) const noexcept
         {
             return address_ != 0;
+        }
+
+    public:
+        constexpr ptrdiff_t operator-(pa_t addr) const noexcept
+        requires(!std::is_void_v<T>)
+        {
+            return address_ - addr.address_;
+        }
+
+        constexpr pa_t operator+(ptrdiff_t offset) const noexcept
+        requires(!std::is_void_v<T>)
+        {
+            return pa_t{address_ + offset};
+        }
+
+        friend constexpr pa_t operator+(ptrdiff_t offset, pa_t addr) noexcept
+        requires(!std::is_void_v<T>)
+        {
+            return addr + offset;
+        }
+
+    public:
+        [[nodiscard]] bool can_transform(void) const noexcept
+        {
+            return reinterpret_cast<uint64_t>(address_) <= direct_virt_mem_end - direct_virt_mem_start;
+        }
+
+        [[nodiscard]] constexpr uint64_t align(void) const noexcept
+        {
+            return 1 << std::countr_zero(address_);
+        }
+
+        [[nodiscard]] constexpr bool is_align_by(uint64_t align) const noexcept
+        {
+            return address_ % align == 0;
         }
     };
 
@@ -60,7 +90,6 @@ namespace riscv::mem
         {
         }
 
-
         explicit va_t(uint64_t address) noexcept
             : address_{reinterpret_cast<T *>(address)}
         {
@@ -68,29 +97,18 @@ namespace riscv::mem
 
         explicit va_t(pa_t<T> p_address) noexcept
         {
-            kassert(reinterpret_cast<uint64_t>(p_address.get()) + direct_virt_mem_offset >= direct_virt_mem_start &&
-                        reinterpret_cast<uint64_t>(p_address.get()) + direct_virt_mem_offset <= direct_virt_mem_end,
-                    "Physical address could not be mapped");
-
             address_ =
                 reinterpret_cast<T *>(reinterpret_cast<uint64_t>(static_cast<T *>(p_address)) + direct_virt_mem_offset);
+
+            kassert(can_transform(), "Physical address could not be mapped");
         }
 
     public:
         explicit operator pa_t<T>(void) const noexcept
         {
-            kassert(reinterpret_cast<uint64_t>(address_) >= direct_virt_mem_start &&
-                        reinterpret_cast<uint64_t>(address_) <= direct_virt_mem_end,
-                    "Virtual memory address out of range");
+            kassert(can_transform(), "Virtual memory address out of range");
 
             return pa_t<T>{reinterpret_cast<uint64_t>(address_) - direct_virt_mem_offset};
-        }
-
-        template <typename U>
-        constexpr operator va_t<U>(void) const noexcept
-        requires std::convertible_to<T *, U *>
-        {
-            return va_t<U>{static_cast<U *>(address_)};
         }
 
         constexpr operator T *(void) const noexcept
@@ -103,10 +121,34 @@ namespace riscv::mem
             return address_ != nullptr;
         }
 
-        constexpr T *operator->(void) noexcept
-        requires(!std::same_as<T, void>)
+        constexpr T *operator->(void) const noexcept
+        requires(!std::is_void_v<T>)
         {
             return address_;
+        }
+
+        constexpr decltype(auto) operator*(void) const noexcept
+        requires(!std::is_void_v<T>)
+        {
+            return (*address_);
+        }
+
+        constexpr ptrdiff_t operator-(va_t addr) const noexcept
+        requires(!std::is_void_v<T>)
+        {
+            return address_ - addr.address_;
+        }
+
+        constexpr va_t operator+(ptrdiff_t offset) const noexcept
+        requires(!std::is_void_v<T>)
+        {
+            return va_t{address_ + offset};
+        }
+
+        friend constexpr va_t operator+(ptrdiff_t offset, va_t addr) noexcept
+        requires(!std::is_void_v<T>)
+        {
+            return addr + offset;
         }
 
     public:
@@ -129,6 +171,28 @@ namespace riscv::mem
         [[nodiscard]] uint16_t get_page_offset(void) const noexcept
         {
             return static_cast<uint16_t>((reinterpret_cast<uint64_t>(address_) & 0xfffu));
+        }
+
+    public:
+        [[nodiscard]] bool can_transform(void) const noexcept
+        {
+            return reinterpret_cast<uint64_t>(address_) >= direct_virt_mem_start &&
+                   reinterpret_cast<uint64_t>(address_) <= direct_virt_mem_end;
+        }
+
+        [[nodiscard]] uint64_t align(void) const noexcept
+        {
+            return 1 << std::countr_zero(reinterpret_cast<uint64_t>(address_));
+        }
+
+        [[nodiscard]] bool is_align_by(uint64_t align) const noexcept
+        {
+            return reinterpret_cast<uint64_t>(address_) % align == 0;
+        }
+
+        [[nodiscard]] uint64_t address(void) const noexcept
+        {
+            return reinterpret_cast<uint64_t>(address_);
         }
     };
 

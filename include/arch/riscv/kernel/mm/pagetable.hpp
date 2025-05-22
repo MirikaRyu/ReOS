@@ -5,10 +5,10 @@
 #include <ranges>
 #include <utility>
 
-#include "kernel/mm/paging/page_table.hpp"
-
 #include "address.hpp"
+#include "kernel/mm/paging/page_table.hpp"
 #include "lib/assert.hpp"
+#include "memory.hpp"
 
 namespace riscv::mem
 {
@@ -250,18 +250,17 @@ namespace riscv::mem
         }
 
         pagetable_t(pagetable_t &&other) noexcept
-        requires std::is_move_constructible_v<Alloc>
             : allocator_{std::move(other.allocator_)}, root_{std::move(other.root_)}
         {
             other.root_ = {};
         }
 
         pagetable_t &operator=(pagetable_t &&other) noexcept
-        requires std::is_move_assignable_v<Alloc>
         {
             if (this == &other)
                 return *this;
 
+            do_pagetable_free();
             allocator_ = std::move(other.allocator_);
             root_ = std::move(other.root_);
             other.root_ = {};
@@ -273,8 +272,8 @@ namespace riscv::mem
         void add_mapping(pa_t<> from, va_t<> to, packed_perm_t perm) noexcept
         {
             kassert(perm.packed_perm > 0 && perm.packed_perm < 0b11111, "Invalid permission bits");
-            kassert(from.get() % 4096 == 0, "Physical address misaligned");
-            kassert(pa_t(to).get() % 4096 == 0, "Virtual address misaligned");
+            kassert(from.is_align_by(page_size), "Physical address misaligned");
+            kassert(to.is_align_by(page_size), "Virtual address misaligned");
 
             ppn_t ppn_next{root_};
 

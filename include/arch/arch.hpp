@@ -1,6 +1,8 @@
 #pragma once
 
 #include "arch/riscv/kernel/mm/address.hpp"
+#include "arch/riscv/kernel/mm/memory.hpp"
+#include <cstdint>
 
 enum class archs
 {
@@ -23,4 +25,6 @@ struct arch_traits<archs::RISCV>
 
     template <typename T = void>
     using va_t = riscv::mem::va_t<T>;
+
+    static constexpr auto &page_size = riscv::mem::page_size;
 };
