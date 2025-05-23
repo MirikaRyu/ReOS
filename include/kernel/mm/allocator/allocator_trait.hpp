@@ -42,7 +42,7 @@ namespace kernel::mem
         requires std::movable<T>;
 
         { allocator.alloc(size_t{}) } noexcept -> std::constructible_from<decltype(va)>;
-        { allocator.dealloc(va) } noexcept -> std::same_as<void>;
+        { allocator.dealloc(va, size_t{}) } noexcept -> std::same_as<void>;
     };
 
     template <typename T>

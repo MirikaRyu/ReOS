@@ -15,6 +15,9 @@ namespace riscv::mem
     inline constexpr auto direct_virt_mem_end = 0xffffffe000000000;
 
     template <typename T = void>
+    struct va_t;
+
+    template <typename T = void>
     struct pa_t
     {
     private:
@@ -29,6 +32,11 @@ namespace riscv::mem
         [[nodiscard]] constexpr uint64_t get(void) const noexcept
         {
             return address_;
+        }
+
+        va_t<T> to_va(void) const noexcept
+        {
+            return {*this};
         }
 
     public:
@@ -78,7 +86,7 @@ namespace riscv::mem
         }
     };
 
-    template <typename T = void>
+    template <typename T>
     struct va_t
     {
     private:
@@ -109,6 +117,11 @@ namespace riscv::mem
             kassert(can_transform(), "Virtual memory address out of range");
 
             return pa_t<T>{reinterpret_cast<uint64_t>(address_) - direct_virt_mem_offset};
+        }
+
+        pa_t<T> to_pa(void) const noexcept
+        {
+            return pa_t{*this};
         }
 
         constexpr operator T *(void) const noexcept
