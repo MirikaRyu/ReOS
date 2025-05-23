@@ -1,0 +1,9 @@
+CompileFlags:
+  Add: [-xc++, -std=c++23]
+  Remove: [-fmodule*, -mno-direct-extern-access, -fdeps*]
+
+Diagnostics:
+  ClangTidy:
+    Add: modernize*
+    Remove: [modernize-use-trailing-return-type, modernize-use-default-member-init, modernize-redundant-void-arg, modernize-avoid-c-arrays]
+  Suppress: ['drv_unknown_argument', 'unused-includes']
