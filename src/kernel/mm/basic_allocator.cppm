@@ -237,7 +237,7 @@ namespace kernel::mm
                 size_t page_count;
             };
 
-            lib::forward_list_t<region_t, adaptor_allocator_t<slab_allocator_t>> occupy_list_;
+            lib::forward_list<region_t, adaptor_allocator_t<slab_allocator_t>> occupy_list_;
             kpagetable_t *pagetable_;
             sync::spinlock_t lock_{};
 
