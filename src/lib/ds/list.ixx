@@ -189,7 +189,7 @@ export namespace kernel::lib
         }
 
     public:
-        [[nodiscard]] constexpr bool empty(void) const noexcept
+        constexpr bool empty(void) const noexcept
         {
             return head_.next == nullptr;
         }
@@ -235,7 +235,7 @@ export namespace kernel::lib
 
         template <contract::ContainerCompatibleRange<value_type> R>
         requires std::is_nothrow_copy_constructible_v<value_type>
-        void prepend_range(R &&rg) noexcept
+        constexpr void prepend_range(R &&rg) noexcept
         {
             auto it = before_begin();
             for (const auto &i : rg)
@@ -247,7 +247,7 @@ export namespace kernel::lib
             erase_after(before_begin());
         }
 
-        void swap(forward_list &other) noexcept
+        constexpr void swap(forward_list &other) noexcept
         {
             std::swap(head_, other.head_);
             std::swap(allocator_, other.allocator_);
@@ -258,7 +258,7 @@ export namespace kernel::lib
     forward_list(R &&, Alloc = Alloc{}) -> forward_list<std::ranges::range_value_t<R>, Alloc>;
 
     template <contract::ContainerType T, contract::UniversalAlloctor Alloc>
-    void swap(forward_list<T, Alloc> &_1, forward_list<T, Alloc> &_2) noexcept
+    constexpr void swap(forward_list<T, Alloc> &_1, forward_list<T, Alloc> &_2) noexcept
     {
         _1.swap(_2);
     }

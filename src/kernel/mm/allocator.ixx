@@ -69,6 +69,13 @@ export namespace kernel::mm
         [[nodiscard]] static void *allocate(size_t nbytes, size_t alignment = 8) noexcept;
         static void deallocate(void *addr, size_t nbytes, size_t alignment = 8) noexcept;
 
+        /*
+        TODO: Add constexpr allocate and deallocate here.
+              Only std::allocator is allowed to allocate uninitialized memory,
+              and constructing a different type on an allocated memory is prohibitted currently,
+              waiting for the adoptation of P3295 freestanding std::allocator.
+        */
+
     public:
         constexpr bool operator==(const generic_allocator_t &) const noexcept
         {

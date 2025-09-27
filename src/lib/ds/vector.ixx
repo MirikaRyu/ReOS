@@ -215,17 +215,17 @@ export namespace kernel::lib
         }
 
     public:
-        [[nodiscard]] bool empty(void) const noexcept
+        constexpr bool empty(void) const noexcept
         {
             return size_ == 0;
         }
 
-        [[nodiscard]] size_type size(void) const noexcept
+        constexpr size_type size(void) const noexcept
         {
             return size_;
         }
 
-        void reserve(size_type new_capacity) noexcept
+        constexpr void reserve(size_type new_capacity) noexcept
         requires std::is_nothrow_move_constructible_v<value_type>
         {
             if (new_capacity <= capacity_)
@@ -240,12 +240,12 @@ export namespace kernel::lib
                               sizeof(value_type) * std::exchange(capacity_, new_capacity));
         }
 
-        [[nodiscard]] size_type capacity(void) const noexcept
+        constexpr size_type capacity(void) const noexcept
         {
             return capacity_;
         }
 
-        void shrink_to_fit(void) noexcept
+        constexpr void shrink_to_fit(void) noexcept
         requires std::is_nothrow_move_constructible_v<value_type>
         {
             if (capacity_ == size_)
@@ -260,7 +260,7 @@ export namespace kernel::lib
         }
 
     public:
-        void clear(void) noexcept
+        constexpr void clear(void) noexcept
         {
             std::destroy_n(data_, size_);
             size_ = 0;
@@ -345,7 +345,7 @@ export namespace kernel::lib
             return *emplace(end(), std::forward<Args>(args)...);
         }
 
-        void pop_back(void) noexcept
+        constexpr void pop_back(void) noexcept
         {
             std::destroy_at(data_ + --size_);
         }
@@ -363,7 +363,7 @@ export namespace kernel::lib
     vector(R &&, Alloc = Alloc{}) -> vector<std::ranges::range_value_t<R>, Alloc>;
 
     template <contract::ContainerType T, contract::UniversalAlloctor Alloc>
-    void swap(vector<T, Alloc> &_1, vector<T, Alloc> &_2) noexcept
+    constexpr void swap(vector<T, Alloc> &_1, vector<T, Alloc> &_2) noexcept
     {
         _1.swap(_2);
     }
