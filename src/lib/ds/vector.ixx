@@ -95,6 +95,12 @@ export namespace kernel::lib
             if (this == &other)
                 return *this;
 
+            if (alloc_ != other.alloc_)
+            {
+                vector tmp{other.alloc_};
+                swap(tmp);
+            }
+
             if (other.size_ > capacity_)
             {
                 const auto tmp_data = static_cast<pointer>(other.alloc_.allocate(other.size_ * sizeof(value_type)));
@@ -302,7 +308,9 @@ export namespace kernel::lib
                     *mut_pos = std::move(tmp);
                 }
                 else
+                {
                     std::construct_at(mut_pos, std::forward<Args>(args)...);
+                }
 
                 ret = mut_pos;
             }
