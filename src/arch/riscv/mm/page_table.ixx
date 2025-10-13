@@ -410,7 +410,7 @@ export namespace kernel::arch::riscv
             }
         }
 
-        void delete_mapping(va_t addr) noexcept
+        void del_mapping(va_t addr) noexcept
         {
             do_pagetable_walk(addr, [](pte_t &entry, auto) { entry.set_valid(false); });
         }

@@ -249,7 +249,7 @@ namespace kernel::mm
                     if (!page) [[unlikely]]
                     {
                         for (size_t j = 0; j < i; j++)
-                            pagetable_->delete_mapping(vaddr + j * arch_mm::PAGE_SIZE); // Not visited, don't flush
+                            pagetable_->del_mapping(vaddr + j * arch_mm::PAGE_SIZE); // Not visited, don't flush
                         return {};
                     }
 
@@ -313,7 +313,7 @@ namespace kernel::mm
                                 const auto addr = vaddr + i * arch_mm::PAGE_SIZE;
 
                                 page_allocator_t::dealloc_page(arch_mm::to_va(pagetable_->transform(addr)));
-                                pagetable_->delete_mapping(addr);
+                                pagetable_->del_mapping(addr);
                                 arch_mm::tlb_flush(addr);
                             }
 
