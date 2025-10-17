@@ -1,5 +1,6 @@
 module;
 
+#include <algorithm>
 #include <bit>
 #include <concepts>
 #include <cstddef>
@@ -82,9 +83,11 @@ export namespace kernel::arch::riscv
                 return val & (1ULL << 7);
             }
 
-            constexpr uint64_t rsw(void) const noexcept
+            // Get the `shared` bit from the pte.
+            // Note that the bit means differently in L2, L1 level, refer to `set_shared` for more info.
+            constexpr bool shared(void) const noexcept
             {
-                return (val >> 8) & 0b11;
+                return val & (1ULL << 8);
             }
 
             constexpr uint64_t ppn(void) const noexcept
@@ -92,6 +95,12 @@ export namespace kernel::arch::riscv
                 return (val >> 10) & ((1ULL << 44) - 1);
             }
 
+            constexpr bool is_leaf(void) const noexcept
+            {
+                return read() || write() || exec();
+            }
+
+        public:
             constexpr void set_valid(bool x) noexcept
             {
                 set_bit(0, x);
@@ -132,10 +141,18 @@ export namespace kernel::arch::riscv
                 set_bit(7, x);
             }
 
-            constexpr void set_rsw(uint64_t v) noexcept
+            // Set the shared status of a page or mark a pte share the underlaying subtree.
+            // If the bit appears in L2, it means that the subtree is borrowed from other page_table.
+            // If the bit appears in L1, it means that the page is pinned in memory.
+            // The bit should not appear in L0 level.
+            // If the subtree is borrowed, then it should not be released by the page_table.
+            // If the page is pinned,
+            //      then this bit must appear in the first entry of the page
+            //      and the pte should not be remapped to other addresses,
+            //      and the page won't be released until the end of page_table's lifetime.
+            constexpr void set_shared(bool x) noexcept
             {
-                val &= ~(0b11ULL << 8);
-                val |= (v & 0b11ULL) << 8;
+                set_bit(8, x);
             }
 
             constexpr void set_ppn(uint64_t v) noexcept
@@ -154,15 +171,17 @@ export namespace kernel::arch::riscv
             }
         };
 
-        static constexpr bool pte_is_leaf(const pte_t &pte) noexcept
-        {
-            return pte.read() || pte.write() || pte.exec();
-        }
-
         struct page_t
         {
             static constexpr auto PTE_COUNTS = 512u;
             pte_t entries[PTE_COUNTS];
+        };
+
+        enum class ppn_level : uint8_t
+        {
+            L0,
+            L1,
+            L2,
         };
 
         using ppn_t = uint64_t;
@@ -177,22 +196,17 @@ export namespace kernel::arch::riscv
             return addr.get() >> 12u;
         }
 
-        static constexpr page_t *ppn_to_page(ppn_t ppn) noexcept
+        static constexpr page_t &ppn_to_page(ppn_t ppn) noexcept
         {
-            return ppn_to_va(ppn).to<page_t>();
+            lib::kassert(ppn, "Null ppn dereference");
+
+            return *(ppn_to_va(ppn).to<page_t>());
         }
 
         static constexpr pte_t &ppn_get_pte(ppn_t ppn, uint16_t idx) noexcept
         {
-            return ppn_to_page(ppn)->entries[idx];
+            return ppn_to_page(ppn).entries[idx];
         }
-
-        enum class ppn_level : uint8_t
-        {
-            L0,
-            L1,
-            L2,
-        };
 
         static constexpr uint16_t get_pte_idx(va_t va, ppn_level level) noexcept
         {
@@ -200,15 +214,26 @@ export namespace kernel::arch::riscv
             return static_cast<uint16_t>((va.address() & mask) >> (12u + lib::idx(level) * 9u));
         }
 
+        static constexpr perm_result_t make_perms(const pte_t &pte) noexcept
+        {
+            return static_cast<perms>(pte.user() << 3u) | static_cast<perms>(pte.exec() << 2u) |
+                   static_cast<perms>(pte.write() << 1u) | static_cast<perms>(pte.read());
+        }
+
     private:
         [[no_unique_address]] Alloc allocator_;
         uint64_t root_pte_; // Take the root ppn as a pte struct to tranverse more easily
 
+        ppn_t root_ppn(void) const noexcept
+        {
+            return std::bit_cast<pte_t>(root_pte_).ppn();
+        }
+
         [[nodiscard]] ppn_t do_page_alloc(void) noexcept
         {
-            if (auto raw_page = allocator_.alloc_page()) [[likely]]
+            if (const va_t raw_page = allocator_.alloc_page()) [[likely]]
             {
-                auto page = ::new (raw_page.template to<void>()) page_t{};
+                const auto page = ::new (raw_page.to<void>()) page_t{};
                 return pa_to_ppn(to_pa(va_t{page}));
             }
             else
@@ -218,28 +243,21 @@ export namespace kernel::arch::riscv
             }
         }
 
-        static constexpr perm_result_t make_perms(const pte_t &pte) noexcept
-        {
-            return static_cast<perms>(pte.user() << 3u) | static_cast<perms>(pte.exec() << 2u) |
-                   static_cast<perms>(pte.write() << 1u) | static_cast<perms>(pte.read());
-        }
-
         template <std::invocable<pte_t &, ppn_level> Func>
         void do_pagetable_walk(this auto &&self, va_t addr, Func &&func) noexcept
         {
-            if (self.root_pte_ == 0)
+            if (!self.root_ppn())
                 return;
 
-            ppn_t ppn_next{std::bit_cast<pte_t>(self.root_pte_).ppn()};
-            for (const auto &lv : {ppn_level::L2, ppn_level::L1, ppn_level::L0})
+            ppn_t ppn_next{self.root_ppn()};
+            for (const auto lv : {ppn_level::L2, ppn_level::L1, ppn_level::L0})
             {
-                auto &pte = ppn_get_pte(ppn_next, get_pte_idx(addr, lv));
+                pte_t &pte = ppn_get_pte(ppn_next, get_pte_idx(addr, lv));
                 ppn_next = pte.ppn();
 
-                if (pte.valid() != 1) [[unlikely]]
-                    lib::panic("Invalid virtual address");
+                lib::kassert(pte.valid(), "Invalid virtual address");
 
-                if (pte_is_leaf(pte))
+                if (pte.is_leaf())
                 {
                     func(pte, lv);
                     return;
@@ -258,14 +276,14 @@ export namespace kernel::arch::riscv
                     return;
 
                 auto valid_entry_map =
-                    ppn_to_page(other_root)->entries | std::views::enumerate |
+                    ppn_to_page(other_root).entries | std::views::enumerate |
                     std::views::filter([](const auto &idx_pte) { return std::get<1>(idx_pte).valid(); });
                 for (const auto &[idx, pte] : valid_entry_map)
                 {
                     if (local_pte->ppn() == 0)
                         local_pte->set_ppn(obj->do_page_alloc());
 
-                    if (pte_is_leaf(pte))
+                    if (pte.is_leaf())
                         ppn_get_pte(local_pte->ppn(), idx) = pte;
                     else
                         self(&ppn_get_pte(local_pte->ppn(), idx), ppn_get_pte(other_root, idx).ppn()),
@@ -274,14 +292,16 @@ export namespace kernel::arch::riscv
             }(reinterpret_cast<pte_t *>(&root_pte_), pa_to_ppn(other_pagetable.entry()));
         }
 
-        void do_pagetable_free(ppn_t tree_root) noexcept
+        void do_pagetable_free(ppn_t tree_root, uint8_t _iter = 0) noexcept
         {
             if (tree_root == 0)
                 return;
 
-            for (pte_t &pte : ppn_to_page(tree_root)->entries |
-                                  std::views::filter([](const pte_t &pte) { return pte.valid() && !pte_is_leaf(pte); }))
-                do_pagetable_free(pte.ppn());
+            for (pte_t &pte :
+                 ppn_to_page(tree_root).entries |
+                     std::views::filter([&](const pte_t &pte)
+                                        { return pte.valid() && !pte.is_leaf() && (_iter != 0 || !pte.shared()); }))
+                do_pagetable_free(pte.ppn(), _iter + 1);
 
             allocator_.dealloc_page(ppn_to_va(tree_root), 1); // Trival, no need to call destructor
         }
@@ -320,7 +340,7 @@ export namespace kernel::arch::riscv
             if (this == &other)
                 return *this;
 
-            do_pagetable_free(std::bit_cast<pte_t>(root_pte_).ppn());
+            do_pagetable_free(root_ppn());
             allocator_ = std::move(other.allocator_);
             root_pte_ = std::move(other.root_pte_);
             other.root_pte_ = {};
@@ -335,22 +355,28 @@ export namespace kernel::arch::riscv
                 if (this == &other)
                     return *this;
 
-            do_pagetable_free(std::bit_cast<pte_t>(root_pte_).ppn());
+            do_pagetable_free(root_ppn());
             do_pagetable_copy(other);
 
             return *this;
         }
 
-        ~pagetable_t()
+        void swap(pagetable_t &other) noexcept
         {
-            do_pagetable_free(std::bit_cast<pte_t>(root_pte_).ppn());
+            std::swap(allocator_, other.allocator_);
+            std::swap(root_pte_, other.root_pte_);
+        }
+
+        ~pagetable_t() noexcept
+        {
+            do_pagetable_free(root_ppn());
         }
 
     public:
-        void add_mapping(pa_t from, va_t to, perm_result_t perm, page_level level = page_level::BASE) noexcept
+        void add_mapping(va_t from, pa_t to, perm_result_t perm, page_level level = page_level::BASE) noexcept
         {
-            lib::kassert(from.is_align_to(page_size(level)), "Physical address misaligned");
-            lib::kassert(to.is_align_to(page_size(level)), "Virtual address misaligned");
+            lib::kassert(from.is_align_to(page_size(level)), "Virtual address misaligned");
+            lib::kassert(to.is_align_to(page_size(level)), "Physical address misaligned");
 
             auto is_table_empty = [](this auto &&self, ppn_t root)
             {
@@ -358,24 +384,23 @@ export namespace kernel::arch::riscv
                     return true;
 
                 for (const pte_t &pte :
-                     ppn_to_page(root)->entries | std::views::filter([](const pte_t &pte) { return pte.valid(); }))
-                    if (pte_is_leaf(pte) || !self(pte.ppn())) // `a valid leaf page` or `next level not empty`
+                     ppn_to_page(root).entries | std::views::filter([](const pte_t &pte) { return pte.valid(); }))
+                    if (pte.is_leaf() || !self(pte.ppn())) // `a valid leaf page` or `next level not empty`
                         return false;
 
                 return true;
             };
 
-            ppn_t ppn_next{root_pte_ ? std::bit_cast<pte_t>(root_pte_).ppn()
-                                     : std::bit_cast<pte_t>(root_pte_ = (do_page_alloc() << 10u)).ppn()};
-            for (const auto &lv : {ppn_level::L2, ppn_level::L1, ppn_level::L0})
+            ppn_t ppn_next{root_pte_ ? root_ppn() : (root_pte_ = (do_page_alloc() << 10u), root_ppn())};
+            for (const auto lv : {ppn_level::L2, ppn_level::L1, ppn_level::L0})
             {
-                pte_t &pte = ppn_get_pte(ppn_next, get_pte_idx(to, lv));
+                pte_t &pte = ppn_get_pte(ppn_next, get_pte_idx(from, lv));
 
                 if (lib::idx(lv) == lib::idx(level)) // Reach the target pagetable level
                 {
                     if (pte.valid()) // Check if the target is occupied
                     {
-                        if (pte_is_leaf(pte) || !is_table_empty(pte.ppn())) [[unlikely]]
+                        if (pte.is_leaf() || !is_table_empty(pte.ppn())) [[unlikely]]
                         {
                             lib::panic("Try to map the same va or some addresses in the hugepage are mapped");
                             return;
@@ -384,7 +409,7 @@ export namespace kernel::arch::riscv
                         do_pagetable_free(pte.ppn()); // No mapping in subtree, free pages
                     }
 
-                    pte.set_ppn(pa_to_ppn(from));
+                    pte.set_ppn(pa_to_ppn(to));
                     pte.set_user(perm & perms::U);
                     pte.set_exec(perm & perms::X);
                     pte.set_write(perm & perms::W);
@@ -400,7 +425,7 @@ export namespace kernel::arch::riscv
                     pte.set_valid(true);
                 }
 
-                if (pte_is_leaf(pte)) [[unlikely]]
+                if (pte.is_leaf()) [[unlikely]]
                 {
                     lib::panic("Try to map address in an active hugepage");
                     return;
@@ -435,6 +460,104 @@ export namespace kernel::arch::riscv
             return ret;
         }
 
+        pagetable_t shared_copy(void) noexcept
+        {
+            pagetable_t result{allocator_};
+
+            if (root_ppn())
+            {
+                result.root_pte_ = do_page_alloc() << 10u;
+                std::copy_n(&ppn_to_page(root_ppn()), 1, &ppn_to_page(result.root_ppn()));
+
+                for (pte_t &entry :
+                     ppn_to_page(result.root_ppn()).entries |
+                         std::views::filter([](const pte_t &pte) { return pte.valid() && !pte.is_leaf(); }))
+                {
+                    entry.set_shared(true);
+                    ppn_get_pte(entry.ppn(), 0).set_shared(true);
+                }
+            }
+
+            return result;
+        }
+
+        void shared_mark(va_t start, va_t end) noexcept
+        {
+            lib::kassert(start.is_align_to(page_size(page_level::HUGE)), "Start address misaligned");
+            lib::kassert(end.is_align_to(page_size(page_level::HUGE)), "End address misaligned");
+            lib::kassert(end - start > 0, "Invalid address range");
+
+            if (!root_ppn())
+                root_pte_ = do_page_alloc() << 10;
+
+            for (const auto idx : std::views::iota(get_pte_idx(start, ppn_level::L2), get_pte_idx(end, ppn_level::L2)))
+            {
+                pte_t &pte = ppn_get_pte(root_ppn(), idx);
+                if (!pte.is_leaf())
+                {
+                    if (!pte.valid())
+                    {
+                        pte.set_ppn(do_page_alloc());
+                        pte.set_valid(true);
+                    }
+
+                    ppn_get_pte(pte.ppn(), idx).set_shared(true);
+                }
+            }
+        }
+
+        void shared_attach(const pagetable_t &other, va_t start, va_t end) noexcept
+        {
+            lib::kassert(start.is_align_to(page_size(page_level::HUGE)), "Start address misaligned");
+            lib::kassert(end.is_align_to(page_size(page_level::HUGE)), "End address misaligned");
+            lib::kassert(end - start > 0, "Invalid address range");
+
+            if (!other.root_ppn())
+                return;
+
+            for (const auto idx : std::views::iota(get_pte_idx(start, ppn_level::L2), get_pte_idx(end, ppn_level::L2)))
+            {
+                const pte_t &other_pte = ppn_get_pte(other.root_ppn(), idx);
+                if (other_pte.valid() && !other_pte.is_leaf() && ppn_get_pte(other_pte.ppn(), 0).shared())
+                {
+                    if (!root_ppn()) [[unlikely]]
+                        root_pte_ = do_page_alloc() << 10;
+
+                    pte_t &local_pte = ppn_get_pte(root_ppn(), idx);
+                    if (!local_pte.valid())
+                    {
+                        local_pte.set_ppn(other_pte.ppn());
+                        local_pte.set_user(false);
+                        local_pte.set_exec(false);
+                        local_pte.set_write(false);
+                        local_pte.set_read(false);
+                        local_pte.set_shared(true);
+                        local_pte.set_valid(true);
+                    }
+                }
+            }
+        }
+
+        void shared_detach(va_t start, va_t end) noexcept
+        {
+            lib::kassert(start.is_align_to(page_size(page_level::HUGE)), "Start address misaligned");
+            lib::kassert(end.is_align_to(page_size(page_level::HUGE)), "End address misaligned");
+            lib::kassert(end - start > 0, "Invalid address range");
+
+            if (!root_ppn())
+                return;
+
+            for (const auto idx : std::views::iota(get_pte_idx(start, ppn_level::L2), get_pte_idx(end, ppn_level::L2)))
+            {
+                pte_t &pte = ppn_get_pte(root_ppn(), idx);
+                if (pte.valid() && pte.shared() && !pte.is_leaf())
+                {
+                    pte.set_shared(false);
+                    pte.set_valid(false);
+                }
+            }
+        }
+
         [[nodiscard]] pa_t transform(va_t addr) const noexcept
         {
             uint64_t ret{};
@@ -454,11 +577,6 @@ export namespace kernel::arch::riscv
             return pa_t{ret};
         }
 
-        [[nodiscard]] pa_t entry(void) const noexcept
-        {
-            return to_pa(ppn_to_va(std::bit_cast<pte_t>(root_pte_).ppn()));
-        }
-
         [[nodiscard]] static constexpr size_t page_size(page_level level) noexcept
         {
             switch (level)
@@ -474,5 +592,16 @@ export namespace kernel::arch::riscv
                 std::unreachable();
             }
         }
+
+        [[nodiscard]] pa_t entry(void) const noexcept
+        {
+            return to_pa(ppn_to_va(root_ppn()));
+        }
     };
+
+    template <contract::PageAllocator Alloc>
+    void swap(pagetable_t<Alloc> &_1, pagetable_t<Alloc> &_2) noexcept
+    {
+        _1.swap(_2);
+    }
 }

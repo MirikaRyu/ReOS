@@ -4,6 +4,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
+#include <utility>
 
 export module contract.page_table;
 
@@ -87,6 +88,7 @@ export namespace kernel::contract
         // The copy constructor/assign operator are deep copy functions that clone all non-empty page_table pages
         requires std::default_initializable<T> || !std::default_initializable<typename T::allocator_t>;
         requires std::constructible_from<T, typename T::allocator_t>;
+        requires std::swappable<T>;
         requires std::copyable<T>;
         requires std::movable<T>;
 
@@ -98,8 +100,8 @@ export namespace kernel::contract
         // The default page_table level is `page_level::BASE`
         // Memory retrieve of empty page_table entry is not required when deleting a mapping
         // Address for `del_mapping` must be a mapped valid virtual address
-        { table.add_mapping(pa, va, perm_pack) } noexcept -> std::same_as<void>;
-        { table.add_mapping(pa, va, perm_pack, level) } noexcept -> std::same_as<void>;
+        { table.add_mapping(va, pa, perm_pack) } noexcept -> std::same_as<void>;
+        { table.add_mapping(va, pa, perm_pack, level) } noexcept -> std::same_as<void>;
         { table.del_mapping(va) } noexcept -> std::same_as<void>;
 
         // The ability to get and set page permission
@@ -115,7 +117,7 @@ export namespace kernel::contract
         // `shared_copy` should create a new page_table that shares the same lower-level subtrees with the origin
         // `shared_mark` should create (if not exist) and pin smallest page_table subtrees covering [va_start, va_end)
         // `shared_attach` should share the subtrees from the other over [va_start, va_end),
-        //                 and only the valid mapping with shareable subtrees will be attached to
+        //                 and only the mapping marked by `share_mark` will be attached to
         //                 Two tables will link to the same subtrees of attached addresses and pin them in memory,
         //                 and the page_table was attached to must have a lifetime longer than the other
         // `shared_deatch` should remove the valid mappings in [va_start, va_end) and unshared mappings are not affected
@@ -123,7 +125,7 @@ export namespace kernel::contract
         // All the virtual address must be aligned to the size of `page_level::HUGE`
         { table.shared_copy() } noexcept -> std::same_as<T>;
         { table.shared_mark(va, va) } noexcept -> std::same_as<void>;
-        { table.shared_attach(table, va, va) } noexcept -> std::same_as<void>;
+        { table.shared_attach(std::as_const(table), va, va) } noexcept -> std::same_as<void>;
         { table.shared_detach(va, va) } noexcept -> std::same_as<void>;
 
         // The ability to query the page size of the specific page_table level, recommend to be static

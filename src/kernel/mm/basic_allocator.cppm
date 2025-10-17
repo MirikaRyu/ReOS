@@ -254,7 +254,7 @@ namespace kernel::mm
                     }
 
                     pagetable_->add_mapping(
-                        arch_mm::to_pa(page), vaddr + i * arch_mm::PAGE_SIZE, perms::R | perms::W | perms::X);
+                        vaddr + i * arch_mm::PAGE_SIZE, arch_mm::to_pa(page), perms::R | perms::W | perms::X);
                 }
 
                 occupy_list_.emplace_after(it, vaddr, count);
