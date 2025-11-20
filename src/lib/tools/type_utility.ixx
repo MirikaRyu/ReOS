@@ -82,5 +82,5 @@ export namespace kernel::lib
 
     template <typename T>
     requires std::is_class_v<T>
-    kernel::lib::static_singleton<T>::~static_singleton() = default;
+    kernel::lib::static_singleton<T>::static_singleton::~static_singleton() = default;
 }
