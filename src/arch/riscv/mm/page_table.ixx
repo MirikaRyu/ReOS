@@ -361,10 +361,10 @@ export namespace kernel::arch::riscv
             return *this;
         }
 
-        void swap(pagetable_t &other) noexcept
+        friend void swap(pagetable_t &_1, pagetable_t &_2) noexcept
         {
-            std::swap(allocator_, other.allocator_);
-            std::swap(root_pte_, other.root_pte_);
+            std::ranges::swap(_1.allocator_, _2.allocator_);
+            std::ranges::swap(_1.root_pte_, _2.root_pte_);
         }
 
         ~pagetable_t() noexcept
@@ -598,10 +598,4 @@ export namespace kernel::arch::riscv
             return to_pa(ppn_to_va(root_ppn()));
         }
     };
-
-    template <contract::PageAllocator Alloc>
-    void swap(pagetable_t<Alloc> &_1, pagetable_t<Alloc> &_2) noexcept
-    {
-        _1.swap(_2);
-    }
 }

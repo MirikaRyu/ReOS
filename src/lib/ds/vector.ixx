@@ -98,7 +98,7 @@ export namespace kernel::lib
             if (alloc_ != other.alloc_)
             {
                 vector tmp{other.alloc_};
-                swap(tmp);
+                swap(*this, tmp);
             }
 
             if (other.size_ > capacity_)
@@ -358,21 +358,15 @@ export namespace kernel::lib
             std::destroy_at(data_ + --size_);
         }
 
-        constexpr void swap(vector &other) noexcept
+        constexpr friend void swap(vector &_1, vector &_2) noexcept
         {
-            std::swap(alloc_, other.alloc_);
-            std::swap(data_, other.data_);
-            std::swap(size_, other.size_);
-            std::swap(capacity_, other.capacity_);
+            std::ranges::swap(_1.alloc_, _2.alloc_);
+            std::ranges::swap(_1.data_, _2.data_);
+            std::ranges::swap(_1.size_, _2.size_);
+            std::ranges::swap(_1.capacity_, _2.capacity_);
         }
     };
 
     template <std::ranges::input_range R, contract::UniversalAlloctor Alloc>
     vector(R &&, Alloc = Alloc{}) -> vector<std::ranges::range_value_t<R>, Alloc>;
-
-    template <contract::ContainerType T, contract::UniversalAlloctor Alloc>
-    constexpr void swap(vector<T, Alloc> &_1, vector<T, Alloc> &_2) noexcept
-    {
-        _1.swap(_2);
-    }
 }

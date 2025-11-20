@@ -202,7 +202,7 @@ export namespace kernel::lib
             if (is_large() && (alloc_ != str.alloc_))
             {
                 string tmp{str.alloc_};
-                swap(tmp);
+                swap(*this, tmp);
             }
 
             return operator=(std::string_view{str});
@@ -211,7 +211,7 @@ export namespace kernel::lib
         constexpr string &operator=(string &&str) noexcept
         {
             string tmp{std::move(str)};
-            swap(tmp);
+            swap(*this, tmp);
 
             return *this;
         }
@@ -533,10 +533,10 @@ export namespace kernel::lib
             return *this;
         }
 
-        constexpr void swap(string &other) noexcept
+        constexpr friend void swap(string &_1, string &_2) noexcept
         {
-            std::swap(alloc_, other.alloc_);
-            std::swap(rep_, other.rep_);
+            std::swap(_1.alloc_, _2.alloc_);
+            std::swap(_1.rep_, _2.rep_);
         }
 
     public:
@@ -630,11 +630,5 @@ export namespace kernel::lib
         str += rhs;
 
         return str;
-    }
-
-    template <size_t Reserve, typename Alloc>
-    constexpr void swap(string<Reserve, Alloc> &_1, string<Reserve, Alloc> &_2) noexcept
-    {
-        _1.swap(_2);
     }
 }

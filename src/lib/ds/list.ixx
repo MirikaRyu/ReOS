@@ -247,19 +247,13 @@ export namespace kernel::lib
             erase_after(before_begin());
         }
 
-        constexpr void swap(forward_list &other) noexcept
+        constexpr friend void swap(forward_list &_1, forward_list &_2) noexcept
         {
-            std::swap(head_, other.head_);
-            std::swap(allocator_, other.allocator_);
+            std::ranges::swap(_1.head_, _2.head_);
+            std::ranges::swap(_1.allocator_, _2.allocator_);
         }
     };
 
     template <std::ranges::input_range R, contract::UniversalAlloctor Alloc>
     forward_list(R &&, Alloc = Alloc{}) -> forward_list<std::ranges::range_value_t<R>, Alloc>;
-
-    template <contract::ContainerType T, contract::UniversalAlloctor Alloc>
-    constexpr void swap(forward_list<T, Alloc> &_1, forward_list<T, Alloc> &_2) noexcept
-    {
-        _1.swap(_2);
-    }
 }
